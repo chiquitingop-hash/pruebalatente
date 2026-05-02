@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+
+# Secretos y configuración local
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+frontend/.env.local
+frontend/.env.*.local
+
+*.log
+logs/
+.DS_Store
+*.local
+
+# Artefactos de herramientas
+.vscode/
+.idea/
+coverage/
+.nyc_output/
+*.pem
+*.key

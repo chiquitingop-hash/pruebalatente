@@ -1,0 +1,107 @@
+# ─── ERP ELDOM CORPORATION — Render Blueprint (R12) ──────────────────────────
+# Despliegue 1-click: Postgres + backend Node + frontend estático.
+#
+# Uso:
+#   1. Empuja este repo a GitHub.
+#   2. En Render Dashboard → New → Blueprint → conecta el repo → Apply.
+#   3. Render lee este archivo y aprovisiona los 3 recursos.
+#   4. Espera ~5 minutos al primer build. Listo.
+#
+# Notas:
+#   * El backend auto-migra al boot (AUTO_MIGRATE=true) y auto-crea el admin
+#     vía ensureAdmin (admin@eldomcorp.com / Admin2024!).
+#   * JWT_SECRET se genera automáticamente (generateValue: true). No tienes
+#     que pegar nada manual.
+#   * El plan free duerme tras 15 min sin tráfico; el primer request tras
+#     siesta tarda ~30s.
+# ─────────────────────────────────────────────────────────────────────────────
+
+databases:
+  - name: erp-eldom-db
+    databaseName: erp_eldom
+    user: erp_app
+    plan: free
+    postgresMajorVersion: 16
+
+services:
+  # ─── Backend Node API ──────────────────────────────────────────────────────
+  - type: web
+    name: erp-eldom-backend
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: erp-eldom-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 8h
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+      - key: BCRYPT_ROUNDS
+        value: 12
+      - key: AUTO_MIGRATE
+        value: "true"
+      # R15 — primer boot debe crear almacenes/zonas/productos/proveedores
+      # demo. Idempotente (ON CONFLICT en cada INSERT del seed). Sin esto,
+      # Dashboard, Inventario y Traslados muestran listas vacías que pueden
+      # confundirse con errores 500.
+      - key: AUTO_SEED
+        value: "true"
+      - key: RATE_LIMIT_WINDOW_MS
+        value: 900000
+      - key: RATE_LIMIT_MAX
+        value: 100
+      - key: RATE_LIMIT_AUTH_MAX
+        value: 10
+      - key: LOG_LEVEL
+        value: info
+      - key: LOG_DIR
+        value: /tmp/logs
+      - key: MFA_ENFORCE
+        value: "false"
+      # FRONTEND_URL se rellena DESPUÉS del primer deploy.
+      # Render expone <service>.onrender.com — copia la URL del frontend
+      # y pégala aquí en Settings → Environment.
+      - key: FRONTEND_URL
+        value: https://erp-eldom-frontend.onrender.com
+
+  # ─── Frontend estático (build de Vite) ─────────────────────────────────────
+  - type: web
+    name: erp-eldom-frontend
+    runtime: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    pullRequestPreviewsEnabled: false
+    autoDeploy: true
+    envVars:
+      # VITE_* se inyecta en build-time (no runtime).
+      # Apunta al backend recién provisionado.
+      - key: VITE_API_URL
+        value: https://erp-eldom-backend.onrender.com/api/v1
+    routes:
+      # SPA routing — todas las rutas no-asset caen en index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff

@@ -1,0 +1,123 @@
+name: CI
+
+# Pipeline mínimo: lint + parse + tests unitarios.
+# Los tests de contrato (que requieren Postgres) corren aparte si se
+# habilita el job opcional contract-tests con un servicio postgres.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    name: Backend — lint + check + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        working-directory: backend
+        run: npm ci --include=dev
+
+      - name: Syntax check
+        working-directory: backend
+        run: |
+          find src -name "*.js" -exec node --check {} \;
+
+      - name: Lint
+        working-directory: backend
+        run: npm run lint --if-present
+
+      - name: Unit tests
+        working-directory: backend
+        run: npx jest tests/unit --passWithNoTests
+
+  frontend:
+    name: Frontend — install + lint + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci --include=dev
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint --if-present
+
+      - name: Build (Vite)
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://example.com/api/v1
+        run: npm run build
+
+      - name: Verify dist
+        working-directory: frontend
+        run: |
+          test -f dist/index.html || (echo "dist/index.html no se generó" && exit 1)
+          ls -la dist
+
+  # Opcional: tests de contrato con Postgres real.
+  # Deshabilitado por default — habilitar quitando el `if: false`.
+  contract-tests:
+    name: Contract tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: false
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: erp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install
+        working-directory: backend
+        run: npm ci --include=dev
+
+      - name: Migrate
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/erp_test
+          NODE_ENV: test
+        run: npm run migrate
+
+      - name: Contract tests
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/erp_test
+          JWT_SECRET: test_secret_chars_more_than_thirty_two_characters_long
+          NODE_ENV: test
+        run: npx jest tests/contract --runInBand
