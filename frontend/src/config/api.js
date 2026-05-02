@@ -15,7 +15,21 @@ import toast from 'react-hot-toast';
 //
 // Si necesitas apuntar a un backend distinto (e.g. staging remoto) fija
 // VITE_API_URL en .env.local con la URL absoluta — esa anula el default.
-const BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
+const PROD_API_FALLBACK = 'https://erp-eldom-backend.onrender.com/api/v1';
+
+const resolveBaseUrl = () => {
+  const configured = import.meta.env.VITE_API_URL;
+  if (configured) return configured;
+
+  // Netlify sirve solo frontend estático; si falta VITE_API_URL, usar backend público.
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.netlify.app')) {
+    return PROD_API_FALLBACK;
+  }
+
+  return '/api/v1';
+};
+
+const BASE_URL = resolveBaseUrl();
 
 const api = axios.create({
   baseURL: BASE_URL,
