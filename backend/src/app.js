@@ -55,16 +55,29 @@ if (env.isProd) {
 // R12 — En producción aceptamos lista coma-separada (env.FRONTEND_URLS).
 // Permite tener vista de admin y vista pública en dominios distintos sin
 // reconfigurar el backend.
+const isNetlifyApp = (origin = '') => {
+  try {
+    const u = new URL(origin);
+    return u.hostname.endsWith('.netlify.app');
+  } catch {
+    return false;
+  }
+};
+
 const corsOrigin = env.isDev
   ? (origin, cb) => {
       if (!origin) return cb(null, true); // same-origin / curl / server-to-server
       if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
       if (env.FRONTEND_URLS.includes(origin)) return cb(null, true);
+      // Permitir Netlify en dev para previews rápidas sin tocar env.
+      if (isNetlifyApp(origin)) return cb(null, true);
       return cb(new Error(`CORS: origin ${origin} not allowed`));
     }
   : (origin, cb) => {
       if (!origin) return cb(null, true); // health checks Render
       if (env.FRONTEND_URLS.includes(origin)) return cb(null, true);
+      // Netlify deploy previews / sites: permitir *.netlify.app (solo HTTPS).
+      if (isNetlifyApp(origin)) return cb(null, true);
       return cb(new Error(`CORS: origin ${origin} not allowed`));
     };
 
